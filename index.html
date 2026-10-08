@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proof of Stake Simulator · COMP1830 Blockchain for Fintech</title>
+<meta name="description" content="An interactive Proof of Stake simulator: proposer selection, attestations, finality, slashing and the inactivity leak.">
+<style>
+  @font-face { font-family: "Cooper Hewitt"; font-weight: 600; src: url("fonts/cooper-hewitt-600-normal.woff2") format("woff2"); font-display: swap; }
+  @font-face { font-family: "Cooper Hewitt"; font-weight: 700; src: url("fonts/cooper-hewitt-700-normal.woff2") format("woff2"); font-display: swap; }
+  @font-face { font-family: "Public Sans"; font-weight: 400; src: url("fonts/public-sans-400-normal.woff2") format("woff2"); font-display: swap; }
+  @font-face { font-family: "Public Sans"; font-weight: 600; src: url("fonts/public-sans-600-normal.woff2") format("woff2"); font-display: swap; }
+  @font-face { font-family: "Public Sans"; font-weight: 700; src: url("fonts/public-sans-700-normal.woff2") format("woff2"); font-display: swap; }
+
+  :root {
+    /* University of Greenwich palette */
+    --navy: #00033d;
+    --navy-2: #5a5d80;
+    --blue: #0058aa;
+    --bright: #3abff0;
+    --mint: #89e9d7;
+    --teal: #218474;
+    --amber: #ffae00;
+    --red: #cc4b37;
+    --stone: #eeedee;
+    --grey: #cbc9cc;
+    --bg: #f6f7fb;
+    --text: #2e2e2e;
+    --heading: "Cooper Hewitt", Aptos, "Segoe UI", Arial, sans-serif;
+    --body: "Public Sans", Aptos, "Segoe UI", Arial, sans-serif;
+    --mono: Consolas, Menlo, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: var(--body); font-size: 14px; line-height: 1.45; color: var(--text);
+    background: var(--bg);
+    display: grid; grid-template-rows: auto 1fr;
+  }
+  button, input, select { font: inherit; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 20px;
+    background: var(--navy); color: #fff;
+    border-bottom: 3px solid var(--bright);
+  }
+  header h1 { font-family: var(--heading); font-weight: 700; font-size: 18px; margin: 0; letter-spacing: .01em; }
+  header .sub { font-size: 12px; color: #b9bfe0; letter-spacing: .08em; text-transform: uppercase; }
+  header .spacer { flex: 1; }
+  header a { color: #fff; font-size: 12px; opacity: .8; }
+
+  /* ---------- Layout ---------- */
+  main { display: grid; grid-template-columns: 1fr 400px; min-height: 0; }
+  #stage { position: relative; min-height: 420px; overflow: hidden; }
+  #stage canvas { display: block; }
+  #labels { position: absolute; inset: 0; pointer-events: none; }
+  aside {
+    background: #fff; border-left: 1px solid #e3e4ec;
+    overflow-y: auto; padding: 16px 18px 28px;
+  }
+  @media (max-width: 960px) {
+    html, body { height: auto; }
+    main { grid-template-columns: 1fr; }
+    #stage { height: 62vh; }
+    aside { border-left: 0; border-top: 1px solid #e3e4ec; }
+  }
+
+  /* ---------- Stage overlays ---------- */
+  .hud {
+    position: absolute; top: 14px; left: 14px;
+    background: rgba(255,255,255,.92); border: 1px solid #e3e4ec; border-radius: 8px;
+    padding: 10px 14px; min-width: 210px;
+    box-shadow: 0 2px 10px rgba(0,3,61,.06);
+  }
+  .hud .row { display: flex; justify-content: space-between; gap: 18px; font-size: 13px; }
+  .hud .row b { font-family: var(--mono); font-weight: 600; color: var(--navy); }
+  .chip {
+    display: inline-block; margin-top: 8px; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  }
+  .chip.ok { background: #e3f6f1; color: var(--teal); }
+  .chip.bad { background: #fbe9e6; color: var(--red); }
+  .chip.warn { background: #fff4dc; color: #9a6400; }
+  .legend {
+    position: absolute; left: 14px; bottom: 14px;
+    display: flex; gap: 14px; flex-wrap: wrap;
+    background: rgba(255,255,255,.92); border: 1px solid #e3e4ec; border-radius: 8px; padding: 7px 12px;
+    font-size: 12px; color: var(--navy-2);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 12px; height: 12px; border-radius: 2px; display: inline-block; }
+  .log {
+    position: absolute; right: 14px; bottom: 14px; width: 300px; max-width: calc(100% - 28px);
+    display: flex; flex-direction: column-reverse; gap: 6px; pointer-events: none;
+  }
+  .log div {
+    background: rgba(255,255,255,.95); border-left: 3px solid var(--blue); border-radius: 4px;
+    padding: 6px 10px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,3,61,.08);
+    animation: fadein .3s ease;
+  }
+  .log div.good { border-left-color: var(--teal); }
+  .log div.bad { border-left-color: var(--red); }
+  .log div.warn { border-left-color: var(--amber); }
+  @keyframes fadein { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  @media (max-width: 960px) { .log { display: none; } .hud { padding: 7px 10px; min-width: 0; font-size: 12px; } .hud .row { font-size: 12px; } .legend { font-size: 11px; gap: 9px; } .vlabel { padding: 1px 6px; } .vlabel .st, .vlabel br { display: none; } }
+
+  .vlabel {
+    background: rgba(255,255,255,.95); border: 1px solid #e3e4ec; border-radius: 6px;
+    padding: 3px 8px; text-align: center; white-space: nowrap;
+    font-size: 11px; color: var(--navy); line-height: 1.3;
+    box-shadow: 0 1px 4px rgba(0,3,61,.08);
+  }
+  .vlabel b { font-family: var(--heading); font-size: 13px; }
+  .vlabel .st { font-family: var(--mono); }
+  .vlabel.off { opacity: .55; }
+  .vlabel.slashed { border-color: var(--red); color: var(--red); }
+  .ringlabel { font-family: var(--heading); font-weight: 700; font-size: 13px; color: var(--navy); text-align: center; }
+  .ringlabel small { display: block; font-family: var(--body); font-weight: 400; font-size: 11px; color: var(--navy-2); }
+
+  /* ---------- Panel ---------- */
+  section { padding: 14px 0; border-bottom: 1px solid #ececf2; }
+  section:first-child { padding-top: 0; }
+  section:last-child { border-bottom: 0; }
+  h2 {
+    font-family: var(--heading); font-weight: 700; font-size: 12px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--navy); margin: 0 0 10px;
+  }
+  .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn {
+    border: 1px solid #d6d8e4; background: #fff; color: var(--navy);
+    padding: 7px 12px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;
+  }
+  .btn:hover { border-color: var(--blue); color: var(--blue); }
+  .btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; min-width: 84px; }
+  .btn.primary:hover { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.small { padding: 3px 8px; font-size: 11.5px; }
+  .btn.danger { color: var(--red); }
+  .btn.danger:hover { border-color: var(--red); background: #fbe9e6; color: var(--red); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .field { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; }
+  .field > label:not(.switch) { min-width: 120px; color: var(--navy-2); }
+  .field input[type=range] { flex: 1; accent-color: var(--blue); }
+  .field output { font-family: var(--mono); min-width: 54px; text-align: right; color: var(--navy); }
+  select, input[type=number] {
+    border: 1px solid #d6d8e4; border-radius: 6px; padding: 5px 8px; background: #fff; color: var(--navy);
+  }
+  select { width: 100%; }
+  .desc { font-size: 12.5px; color: var(--navy-2); margin: 8px 0 0; }
+
+  table.vals { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.vals th {
+    text-align: left; font-weight: 600; color: var(--navy-2); font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+    padding: 0 4px 6px; border-bottom: 1px solid #ececf2;
+  }
+  table.vals td { padding: 6px 4px; border-bottom: 1px solid #f1f1f5; vertical-align: middle; }
+  table.vals td.num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+  table.vals tr.slashed td { color: var(--red); }
+  table.vals tr.off td:not(:last-child) { opacity: .55; }
+  table.vals input[type=number] { width: 62px; padding: 3px 6px; font-family: var(--mono); font-size: 12px; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+  .name { font-family: var(--heading); font-weight: 700; color: var(--navy); }
+  .switch { position: relative; display: inline-block; width: 30px; height: 17px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .switch span { position: absolute; inset: 0; background: var(--grey); border-radius: 17px; cursor: pointer; transition: .2s; }
+  .switch span::before { content: ""; position: absolute; width: 13px; height: 13px; left: 2px; top: 2px; background: #fff; border-radius: 50%; transition: .2s; }
+  .switch input:checked + span { background: var(--teal); }
+  .switch input:checked + span::before { transform: translateX(13px); }
+  .switch input:disabled + span { opacity: .4; cursor: not-allowed; }
+
+  .bar { position: relative; height: 22px; border-radius: 4px; overflow: visible; display: flex; background: var(--stone); margin: 22px 0 8px; }
+  .bar .seg { height: 100%; transition: width .3s ease; }
+  .bar .seg:first-child { border-radius: 4px 0 0 4px; }
+  .bar .seg:last-child { border-radius: 0 4px 4px 0; }
+  .bar .mark { position: absolute; top: -6px; bottom: -6px; width: 0; border-left: 2px dashed var(--navy); }
+  .bar .mark span {
+    position: absolute; bottom: 100%; transform: translateX(-50%); white-space: nowrap;
+    font-size: 10.5px; color: var(--navy); font-weight: 600; padding-bottom: 1px;
+  }
+  .kv { display: flex; justify-content: space-between; font-size: 12.5px; margin-top: 4px; }
+  .kv b { font-family: var(--mono); color: var(--navy); font-weight: 600; }
+  canvas#chart { width: 100%; height: 160px; display: block; }
+  details { font-size: 12.5px; color: var(--navy-2); }
+  details summary { cursor: pointer; font-weight: 600; color: var(--navy); }
+  details ul { padding-left: 18px; margin: 8px 0 0; }
+  details li { margin-bottom: 4px; }
+  .foot { font-size: 11px; color: var(--navy-2); margin-top: 14px; }
+  .nogl { position: absolute; inset: 0; display: grid; place-items: center; color: var(--navy-2); padding: 20px; text-align: center; }
+</style>
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="sub">COMP1830 · Blockchain for Fintech · Lab 2</div>
+    <h1>Proof of Stake Simulator</h1>
+  </div>
+  <div class="spacer"></div>
+  <a href="#about" id="about-link">About this model</a>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="labels"></div>
+    <div class="hud" aria-live="polite">
+      <div class="row"><span>Slot</span><b id="h-slot">0</b></div>
+      <div class="row"><span>Epoch</span><b id="h-epoch">0</b></div>
+      <div class="row"><span>Last finalised epoch</span><b id="h-final">–</b></div>
+      <div class="row"><span>Online stake</span><b id="h-part">100%</b></div>
+      <div id="h-status"></div>
+    </div>
+    <div class="log" id="log"></div>
+    <div class="legend">
+      <span><i style="background:#9fb7d6;opacity:.6"></i>Proposed</span>
+      <span><i style="background:#9fb7d6;outline:2px solid var(--bright)"></i>Justified</span>
+      <span><i style="background:#9fb7d6;outline:2px solid var(--teal)"></i>Finalised</span>
+      <span><i style="border:1.5px dashed #9a9cb3"></i>Missed slot</span>
+    </div>
+  </div>
+
+  <aside>
+    <section>
+      <h2>Run</h2>
+      <div class="btns">
+        <button class="btn primary" id="b-play">▶ Play</button>
+        <button class="btn" id="b-step" title="Advance one slot">Step</button>
+        <button class="btn" id="b-ff" title="Run 100 slots instantly">+100 slots</button>
+        <button class="btn" id="b-reset">Reset</button>
+      </div>
+      <div class="field">
+        <label for="speed">Speed</label>
+        <input type="range" id="speed" min="0.5" max="12" step="0.5" value="2">
+        <output id="speed-o">2 /s</output>
+      </div>
+    </section>
+
+    <section>
+      <h2>Scenario</h2>
+      <select id="scenario" aria-label="Scenario"></select>
+      <p class="desc" id="scenario-desc"></p>
+    </section>
+
+    <section>
+      <h2>Validators</h2>
+      <table class="vals">
+        <thead><tr><th>Who</th><th>Stake (ETH)</th><th style="text-align:right">Share</th><th style="text-align:right" title="Blocks proposed / expected from stake share">Blocks</th><th>Online</th><th></th></tr></thead>
+        <tbody id="vals"></tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Stake distribution</h2>
+      <div class="bar" id="bar">
+        <div class="mark" style="left:33.333%"><span>⅓ can halt finality</span></div>
+        <div class="mark" style="left:66.667%"><span>⅔ needed to finalise</span></div>
+      </div>
+      <div class="kv"><span>Total active stake</span><b id="k-total">0</b></div>
+      <div class="kv"><span>Stake burned by slashing</span><b id="k-burn">0</b></div>
+      <div class="kv"><span>Stake lost to inactivity leak</span><b id="k-leak">0</b></div>
+      <div class="kv"><span>Missed slots</span><b id="k-missed">0</b></div>
+    </section>
+
+    <section>
+      <h2>Stake share over time</h2>
+      <canvas id="chart" aria-label="Line chart of each validator's stake share over time"></canvas>
+    </section>
+
+    <section>
+      <h2>Settings</h2>
+      <div class="field">
+        <label for="reward">Reward per block</label>
+        <input type="range" id="reward" min="0" max="10" step="0.5" value="2">
+        <output id="reward-o">2 ETH</output>
+      </div>
+      <div class="field">
+        <label for="compound">Re-stake rewards</label>
+        <label class="switch"><input type="checkbox" id="compound" checked><span></span></label>
+      </div>
+    </section>
+
+    <section id="about">
+      <details>
+        <summary>About this model</summary>
+        <p>Each slot, one validator is chosen to <b>propose</b> a block, with probability proportional to its stake. Every online validator <b>attests</b> (votes) for the chain. At the end of each epoch, if validators holding at least <b>⅔ of the stake</b> attested, the epoch is <b>justified</b>; two justified epochs in a row <b>finalise</b> the earlier one, which can then no longer be reverted.</p>
+        <p>It is a simplified teaching model. In Ethereum:</p>
+        <ul>
+          <li>An epoch has 32 slots of 12 seconds (here: 8 slots).</li>
+          <li>Proposers are chosen pseudo-randomly (RANDAO), weighted by effective balance; most rewards come from attesting rather than proposing.</li>
+          <li>Each “validator” here stands for a staking entity, which in reality would run many validators of 32–2048 ETH each.</li>
+          <li>Slashing applies a small initial penalty plus a <b>correlation penalty</b> that grows with the total stake slashed in the same period (here: 3 × slashed share, applied immediately).</li>
+          <li>The <b>inactivity leak</b> starts after 4 epochs without finality and drains offline validators until the online ones hold ⅔ again (here: a flat 5 % per epoch).</li>
+        </ul>
+      </details>
+      <p class="foot">University of Greenwich · COMP1830 Blockchain for Fintech · Educational simulation, not financial or protocol advice.</p>
+    </section>
+  </aside>
+</main>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ===================================================================== Model
+const SLOTS_PER_EPOCH = 8;
+const LEAK_AFTER_EPOCHS = 4;
+const LEAK_RATE = 0.05;
+const CORRELATION_MULTIPLIER = 3;
+const INITIAL_SLASH_FRACTION = 1 / 4096;
+const COLORS = ['#0058aa', '#3abff0', '#218474', '#ffae00', '#00033d', '#89e9d7'];
+const NAMES = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+const SCENARIOS = {
+  equal:   { label: 'Equal stakes', stakes: [100, 100, 100, 100, 100, 100],
+             desc: 'Six validators with equal stake. Run 100+ slots: do they propose an equal number of blocks? Do their shares drift?' },
+  whale:   { label: 'One large validator (40 %)', stakes: [400, 120, 120, 120, 120, 120],
+             desc: 'Validator A holds 40 % of the stake. With rewards re-staked, does A’s share of the stake keep growing?' },
+  blocker: { label: 'A large validator goes offline (35 %)', stakes: [350, 130, 130, 130, 130, 130], offline: [0],
+             desc: 'Validator A (35 %) stops attesting. Only 65 % of the stake is online, so finality stalls. Watch the inactivity leak.' },
+  outage:  { label: 'Half the network offline', stakes: [100, 100, 100, 100, 100, 100], offline: [3, 4, 5],
+             desc: 'Validators D, E and F go offline. Blocks are still produced, but can they be finalised?' },
+  slash:   { label: 'Slashing: alone vs together', stakes: [100, 100, 100, 100, 100, 100],
+             desc: 'Slash one validator and note its penalty. Reset, then slash two validators one after the other. Why is the second penalty larger?' },
+};
+
+let S; // simulation state
+
+function newState(key) {
+  const sc = SCENARIOS[key];
+  const vals = sc.stakes.map((stake, i) => ({
+    id: i, name: NAMES[i], color: COLORS[i], stake, online: !(sc.offline || []).includes(i),
+    slashed: false, proposed: 0, expected: 0, missed: 0, baseShare: 0,
+  }));
+  const st = { scenario: key, vals, slot: 0, blocks: [], justified: -1, finalized: -1,
+               burned: 0, leaked: 0, slashedSum: 0, missed: 0, history: [], log: [] };
+  rebaseShares(st);
+  st.history.push(shares(st));
+  return st;
+}
+
+const active = st => st.vals.filter(v => !v.slashed && v.stake > 0);
+const activeStake = st => active(st).reduce((a, v) => a + v.stake, 0);
+const onlineStake = st => active(st).filter(v => v.online).reduce((a, v) => a + v.stake, 0);
+const shares = st => { const t = activeStake(st) || 1; return st.vals.map(v => (v.slashed ? 0 : v.stake / t)); };
+const epochOf = slot => Math.floor(slot / SLOTS_PER_EPOCH);
+function rebaseShares(st) { const sh = shares(st); st.vals.forEach((v, i) => (v.baseShare = sh[i])); }
+
+function pickProposer(st) {
+  const act = active(st), total = activeStake(st);
+  let r = Math.random() * total;
+  for (const v of act) { r -= v.stake; if (r <= 0) return v; }
+  return act[act.length - 1];
+}
+
+function log(msg, kind = '') {
+  S.log.unshift({ msg, kind });
+  S.log.length = Math.min(S.log.length, 4);
+  if (!fastForwarding) renderLog();
+}
+
+// Advance one slot; returns { proposer, block } for the renderer.
+function stepSlot() {
+  const total = activeStake(S);
+  if (total <= 0) return null;
+  for (const v of active(S)) v.expected += v.stake / total;
+  const p = pickProposer(S);
+  const block = { slot: S.slot, epoch: epochOf(S.slot), proposer: p.id, missed: !p.online, status: 'proposed' };
+  if (p.online) {
+    p.proposed++;
+    const reward = +ui.reward.value;
+    if (ui.compound.checked) p.stake += reward;
+  } else {
+    p.missed++; S.missed++;
+  }
+  S.blocks.push(block);
+  S.slot++;
+  let epochResult = null;
+  if (S.slot % SLOTS_PER_EPOCH === 0) epochResult = endEpoch(epochOf(S.slot - 1));
+  S.history.push(shares(S));
+  if (S.history.length > 4000) S.history.splice(0, S.history.length - 4000);
+  if (S.blocks.length > 400) S.blocks.splice(0, S.blocks.length - 400);
+  return { proposer: p, block, epochResult };
+}
+
+function endEpoch(e) {
+  const participation = onlineStake(S) / (activeStake(S) || 1);
+  let result = 'stalled';
+  if (participation >= 2 / 3) {
+    result = 'justified';
+    S.blocks.forEach(b => { if (b.epoch === e && b.status === 'proposed') b.status = 'justified'; });
+    if (S.justified === e - 1) {
+      S.blocks.forEach(b => { if (b.epoch <= e - 1) b.status = 'finalized'; });
+      if (e - 1 - S.finalized > 1) log(`Finality restored: epoch ${e - 1} finalised.`, 'good');
+      S.finalized = e - 1;
+      result = 'finalized';
+    }
+    S.justified = e;
+  } else {
+    log(`Epoch ${e} not justified: only ${(participation * 100).toFixed(1)} % of stake attested (need ≥ 66.7 %).`, 'bad');
+  }
+  // Inactivity leak: after too many epochs without finality, offline validators lose stake.
+  const sinceFinality = e - S.finalized;
+  if (sinceFinality > LEAK_AFTER_EPOCHS && participation < 2 / 3) {
+    const leaking = active(S).filter(v => !v.online);
+    let lost = 0;
+    leaking.forEach(v => { const l = v.stake * LEAK_RATE; v.stake -= l; lost += l; });
+    S.leaked += lost;
+    if (lost > 0) log(`Inactivity leak: offline validators lost ${lost.toFixed(1)} ETH.`, 'warn');
+  }
+  return result;
+}
+
+function slash(v) {
+  if (v.slashed) return;
+  const totalBefore = activeStake(S);
+  S.slashedSum += v.stake;
+  const correlation = Math.min(1, CORRELATION_MULTIPLIER * S.slashedSum / (totalBefore + S.slashedSum - v.stake));
+  const penalty = Math.min(v.stake, v.stake * (INITIAL_SLASH_FRACTION + correlation));
+  v.stake -= penalty;
+  v.slashed = true;
+  v.online = false;
+  S.burned += penalty;
+  log(`Validator ${v.name} slashed for signing two conflicting blocks: ${penalty.toFixed(1)} ETH burned (${(penalty / (v.stake + penalty) * 100).toFixed(0)} % of its stake) and ejected.`, 'bad');
+  S.history.push(shares(S));
+}
+
+// ===================================================================== UI refs
+const $ = id => document.getElementById(id);
+const ui = {
+  play: $('b-play'), step: $('b-step'), ff: $('b-ff'), reset: $('b-reset'),
+  speed: $('speed'), speedO: $('speed-o'), reward: $('reward'), rewardO: $('reward-o'), compound: $('compound'),
+  scenario: $('scenario'), scenarioDesc: $('scenario-desc'), vals: $('vals'), bar: $('bar'),
+  chart: $('chart'), log: $('log'),
+};
+let fastForwarding = false;
+
+for (const [k, sc] of Object.entries(SCENARIOS)) {
+  const o = document.createElement('option'); o.value = k; o.textContent = sc.label; ui.scenario.appendChild(o);
+}
+const params = new URLSearchParams(location.search);
+ui.scenario.value = SCENARIOS[params.get('scenario')] ? params.get('scenario') : 'equal';
+
+function buildTable() {
+  ui.vals.innerHTML = '';
+  S.vals.forEach(v => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><span class="dot" style="background:${v.color}"></span><span class="name">${v.name}</span></td>
+      <td><input type="number" min="1" max="5000" step="1" aria-label="Stake of validator ${v.name}"></td>
+      <td class="num share"></td>
+      <td class="num blocks"></td>
+      <td><label class="switch" title="Online (attesting)"><input type="checkbox" aria-label="Validator ${v.name} online"><span></span></label></td>
+      <td><button class="btn small danger" title="Simulate double-signing">Slash</button></td>`;
+    const [num] = tr.getElementsByTagName('input');
+    const chk = tr.querySelector('input[type=checkbox]');
+    const btn = tr.querySelector('button');
+    num.addEventListener('change', () => {
+      const val = Math.max(1, Math.min(5000, +num.value || 1));
+      v.stake = val; rebaseShares(S); S.history.push(shares(S));
+      log(`Validator ${v.name} stake set to ${val} ETH.`);
+      refresh();
+    });
+    chk.addEventListener('change', () => {
+      v.online = chk.checked;
+      log(`Validator ${v.name} is now ${v.online ? 'online' : 'offline'}.`, v.online ? 'good' : 'warn');
+      refresh();
+    });
+    btn.addEventListener('click', () => { slash(v); flashSlash(v); refresh(); });
+    v.row = { tr, num, chk, btn, share: tr.querySelector('.share'), blocks: tr.querySelector('.blocks') };
+    ui.vals.appendChild(tr);
+  });
+}
+
+function refresh() {
+  const sh = shares(S);
+  const total = activeStake(S);
+  S.vals.forEach((v, i) => {
+    const r = v.row;
+    if (document.activeElement !== r.num) r.num.value = Math.round(v.stake);
+    r.num.disabled = v.slashed;
+    r.chk.checked = v.online; r.chk.disabled = v.slashed;
+    r.btn.disabled = v.slashed; r.btn.textContent = v.slashed ? 'Slashed' : 'Slash';
+    r.share.textContent = (sh[i] * 100).toFixed(1) + '%';
+    r.blocks.textContent = `${v.proposed} / ${v.expected.toFixed(1)}`;
+    r.tr.className = v.slashed ? 'slashed' : (v.online ? '' : 'off');
+  });
+  // stacked bar
+  ui.bar.querySelectorAll('.seg').forEach(s => s.remove());
+  const marks = [...ui.bar.querySelectorAll('.mark')];
+  S.vals.forEach((v, i) => {
+    if (sh[i] <= 0) return;
+    const seg = document.createElement('div');
+    seg.className = 'seg';
+    seg.style.width = (sh[i] * 100) + '%';
+    seg.style.background = v.color;
+    seg.style.opacity = v.online ? 1 : .35;
+    seg.title = `${v.name}: ${(sh[i] * 100).toFixed(1)} %${v.online ? '' : ' (offline)'}`;
+    ui.bar.insertBefore(seg, marks[0]);
+  });
+  $('k-total').textContent = total.toFixed(1) + ' ETH';
+  $('k-burn').textContent = S.burned.toFixed(1) + ' ETH';
+  $('k-leak').textContent = S.leaked.toFixed(1) + ' ETH';
+  $('k-missed').textContent = S.missed;
+  // HUD
+  const part = onlineStake(S) / (total || 1);
+  $('h-slot').textContent = S.slot;
+  $('h-epoch').textContent = epochOf(S.slot);
+  $('h-final').textContent = S.finalized < 0 ? '–' : S.finalized;
+  $('h-part').textContent = (part * 100).toFixed(1) + '%';
+  const since = epochOf(S.slot) - 1 - S.finalized;
+  let chips = part >= 2 / 3 ? '<span class="chip ok">Finalising</span>' : '<span class="chip bad">Finality stalled</span>';
+  if (since > LEAK_AFTER_EPOCHS && part < 2 / 3) chips += ' <span class="chip warn">Inactivity leak</span>';
+  $('h-status').innerHTML = chips;
+  drawChart();
+  syncScene();
+}
+
+function renderLog() {
+  ui.log.innerHTML = S.log.map(l => `<div class="${l.kind}">${l.msg}</div>`).join('');
+}
+
+// ---------------------------------------------------------------- share chart
+function drawChart() {
+  const c = ui.chart, dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== w * dpr) { c.width = w * dpr; c.height = h * dpr; }
+  const g = c.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, w, h);
+  const H = S.history, n = H.length;
+  const maxShare = H.reduce((m, row) => Math.max(m, ...row), 0.5);
+  const ymax = Math.min(1, Math.ceil(maxShare * 10 + 0.5) / 10);
+  const L = 34, R = 6, T = 8, B = 20;
+  const x = i => L + (n <= 1 ? 0 : (i / (n - 1)) * (w - L - R));
+  const y = s => T + (1 - s / ymax) * (h - T - B);
+  g.font = '10px Public Sans, Arial'; g.fillStyle = '#5a5d80'; g.strokeStyle = '#ececf2'; g.lineWidth = 1;
+  for (let s = 0; s <= ymax + 1e-9; s += ymax > 0.6 ? 0.2 : 0.1) {
+    g.beginPath(); g.moveTo(L, y(s)); g.lineTo(w - R, y(s)); g.stroke();
+    g.fillText(Math.round(s * 100) + '%', 4, y(s) + 3);
+  }
+  g.setLineDash([4, 3]); g.strokeStyle = '#00033d'; g.globalAlpha = .5;
+  g.beginPath(); g.moveTo(L, y(1 / 3)); g.lineTo(w - R, y(1 / 3)); g.stroke();
+  g.setLineDash([]); g.globalAlpha = 1;
+  g.fillText('slots →', w - 42, h - 5);
+  g.fillText('0', L, h - 5);
+  g.fillText(String(S.slot), Math.max(L + 20, w - R - 60), h - 5);
+  const step = Math.max(1, Math.floor(n / 600));
+  S.vals.forEach((v, k) => {
+    g.strokeStyle = v.color; g.lineWidth = 1.8; g.beginPath();
+    for (let i = 0; i < n; i += step) { const px = x(i), py = y(H[i][k]); i ? g.lineTo(px, py) : g.moveTo(px, py); }
+    const last = n - 1; g.lineTo(x(last), y(H[last][k]));
+    g.stroke();
+  });
+}
+
+// ===================================================================== Scene
+const stage = $('stage');
+let renderer;
+try {
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+} catch (e) {
+  stage.insertAdjacentHTML('beforeend', '<div class="nogl">Your browser could not start WebGL, so the 3D view is unavailable. The controls and statistics on the right still work.</div>');
+}
+const scene = new THREE.Scene();
+scene.background = new THREE.Color('#f6f7fb');
+const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
+camera.position.set(0, 19, 25);
+const labelRenderer = new CSS2DRenderer({ element: $('labels') });
+let controls;
+if (renderer) {
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  stage.prepend(renderer.domElement);
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.target.set(0, 0.4, 3.2);
+  controls.enableDamping = true;
+  controls.enablePan = false;
+  controls.minDistance = 12; controls.maxDistance = 80;
+  controls.maxPolarAngle = 1.38;
+}
+
+scene.add(new THREE.HemisphereLight('#ffffff', '#c9cde0', 1.4));
+const sun = new THREE.DirectionalLight('#ffffff', 1.8);
+sun.position.set(7, 16, 9);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 14, bottom: -14 });
+scene.add(sun);
+
+const ground = new THREE.Mesh(new THREE.CircleGeometry(10, 96), new THREE.MeshStandardMaterial({ color: '#e9ebf3', roughness: 1 }));
+ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+const orbit = new THREE.Mesh(new THREE.RingGeometry(6.96, 7.04, 128), new THREE.MeshBasicMaterial({ color: '#cbc9cc' }));
+orbit.rotation.x = -Math.PI / 2; orbit.position.y = 0.01; scene.add(orbit);
+
+// ---- centre: epoch ring with one segment per slot
+const RING_R = 2.4;
+const ringGroup = new THREE.Group(); scene.add(ringGroup);
+const segs = [];
+for (let i = 0; i < SLOTS_PER_EPOCH; i++) {
+  const a = (i / SLOTS_PER_EPOCH) * Math.PI * 2 - Math.PI / 2;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.45, 0.32, 0.6), new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: .5, transparent: true }));
+  m.position.set(Math.cos(a) * RING_R, 0.16, Math.sin(a) * RING_R);
+  m.rotation.y = -a + Math.PI / 2;
+  m.castShadow = true;
+  ringGroup.add(m); segs.push(m);
+}
+const ringDiv = document.createElement('div'); ringDiv.className = 'ringlabel';
+const ringLabel = new CSS2DObject(ringDiv); ringLabel.position.set(0, 0.6, 0); scene.add(ringLabel);
+const ATTEST_TARGET = new THREE.Vector3(0, 0.5, 0);
+
+// ---- validators
+const V_R = 7;
+const vObjs = [];
+function buildValidators() {
+  vObjs.forEach(o => { scene.remove(o.group); o.label.element.remove(); });
+  vObjs.length = 0;
+  S.vals.forEach((v, i) => {
+    const a = (i / S.vals.length) * Math.PI * 2 - Math.PI / 2;
+    const group = new THREE.Group();
+    group.position.set(Math.cos(a) * V_R, 0, Math.sin(a) * V_R);
+    const mat = new THREE.MeshStandardMaterial({ color: v.color, roughness: .45, metalness: .05, transparent: true });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 1, 48), mat);
+    body.castShadow = true; body.receiveShadow = true;
+    group.add(body);
+    const halo = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.35, 64), new THREE.MeshBasicMaterial({ color: v.color, transparent: true, opacity: 0 }));
+    halo.rotation.x = -Math.PI / 2; halo.position.y = 0.02; group.add(halo);
+    const div = document.createElement('div'); div.className = 'vlabel';
+    const label = new CSS2DObject(div);
+    group.add(label);
+    scene.add(group);
+    vObjs.push({ group, body, mat, halo, label, h: heightFor(v), pulse: 0, sink: 0 });
+  });
+}
+function heightFor(v) {
+  const t = activeStake(S) || 1;
+  return v.slashed ? 0.25 : 0.35 + 9 * (v.stake / t);
+}
+function topOf(i) {
+  const o = vObjs[i];
+  return new THREE.Vector3().copy(o.group.position).setY(o.h + 0.05 - o.sink);
+}
+
+// ---- chain of blocks
+const CHAIN_Z = 10.4, CHAIN_Y = 0.4, BLOCK_GAP = 0.95, VISIBLE = 19;
+const chainGroup = new THREE.Group(); scene.add(chainGroup);
+const boxGeo = new THREE.BoxGeometry(0.75, 0.75, 0.75);
+const edgeGeo = new THREE.EdgesGeometry(boxGeo);
+function blockX(i, n) { return (i - (n - 1) / 2) * BLOCK_GAP; }
+let chainMeshes = new Map(); // slot -> mesh
+function syncChain(appearAt = 0) {
+  const shown = S.blocks.slice(-VISIBLE);
+  const keep = new Set(shown.map(b => b.slot));
+  for (const [slot, m] of chainMeshes) if (!keep.has(slot)) { chainGroup.remove(m); chainMeshes.delete(slot); }
+  shown.forEach((b, i) => {
+    let m = chainMeshes.get(b.slot);
+    if (!m) {
+      const color = S.vals[b.proposer].color;
+      const mat = b.missed
+        ? new THREE.MeshBasicMaterial({ color: '#9a9cb3', wireframe: true, transparent: true, opacity: .5 })
+        : new THREE.MeshStandardMaterial({ color, roughness: .5, transparent: true });
+      m = new THREE.Mesh(boxGeo, mat);
+      m.castShadow = !b.missed;
+      const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color: '#3abff0', transparent: true, opacity: 0 }));
+      edges.scale.setScalar(1.04);
+      m.add(edges);
+      m.userData = { edges, appearAt, slot: b.slot };
+      m.position.set(blockX(i, shown.length) + BLOCK_GAP, CHAIN_Y, CHAIN_Z);
+      m.scale.setScalar(appearAt ? 0.001 : 1);
+      chainGroup.add(m); chainMeshes.set(b.slot, m);
+    }
+    m.userData.targetX = blockX(i, shown.length);
+    m.userData.block = b;
+  });
+}
+function styleBlock(m) {
+  const b = m.userData.block; if (!b || b.missed) return;
+  const e = m.userData.edges.material;
+  if (b.status === 'proposed') { m.material.opacity = .45; e.opacity = 0; }
+  if (b.status === 'justified') { m.material.opacity = .8; e.color.set('#3abff0'); e.opacity = 1; }
+  if (b.status === 'finalized') { m.material.opacity = 1; e.color.set('#218474'); e.opacity = 1; }
+}
+
+// ---- transient effects
+const effects = [];
+const sphereGeo = new THREE.SphereGeometry(0.22, 24, 16);
+function animateProposal(pIndex, block, dur) {
+  const start = topOf(pIndex);
+  const n = Math.min(S.blocks.length, VISIBLE);
+  const end = new THREE.Vector3(blockX(n - 1, n), CHAIN_Y, CHAIN_Z);
+  const ctrl = start.clone().lerp(end, .5).setY(Math.max(start.y, end.y) + 4);
+  const curve = new THREE.QuadraticBezierCurve3(start, ctrl, end);
+  const ball = new THREE.Mesh(sphereGeo, new THREE.MeshStandardMaterial({ color: S.vals[pIndex].color, emissive: S.vals[pIndex].color, emissiveIntensity: .5 }));
+  scene.add(ball);
+  const tube = new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.025, 6), new THREE.MeshBasicMaterial({ color: S.vals[pIndex].color, transparent: true, opacity: .35 }));
+  scene.add(tube);
+  effects.push({ t0: now, dur, update(t) {
+    const k = Math.min(1, (t - this.t0) / this.dur);
+    ball.position.copy(curve.getPoint(k));
+    tube.material.opacity = .35 * (1 - k * .6);
+    if (k >= 1) { scene.remove(ball); scene.remove(tube); tube.geometry.dispose(); return true; }
+  } });
+}
+function animateMissed(pIndex, dur) {
+  const o = vObjs[pIndex];
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.0, 1.15, 48), new THREE.MeshBasicMaterial({ color: '#cc4b37', transparent: true, opacity: .9 }));
+  ring.rotation.x = -Math.PI / 2; ring.position.copy(o.group.position).setY(0.03);
+  scene.add(ring);
+  effects.push({ t0: now, dur, update(t) {
+    const k = Math.min(1, (t - this.t0) / this.dur);
+    ring.scale.setScalar(1 + k * 1.2); ring.material.opacity = .9 * (1 - k);
+    if (k >= 1) { scene.remove(ring); return true; }
+  } });
+}
+const lineMat = () => new THREE.LineBasicMaterial({ color: '#218474', transparent: true, opacity: .55 });
+function animateAttestations(dur) {
+  S.vals.forEach((v, i) => {
+    if (v.slashed || !v.online) return;
+    const g = new THREE.BufferGeometry().setFromPoints([topOf(i), ATTEST_TARGET]);
+    const line = new THREE.Line(g, lineMat());
+    scene.add(line);
+    effects.push({ t0: now + dur * .3, dur: dur * .9, update(t) {
+      const k = (t - this.t0) / this.dur;
+      if (k < 0) { line.material.opacity = 0; return; }
+      line.material.opacity = .55 * (1 - Math.min(1, k));
+      if (k >= 1) { scene.remove(line); g.dispose(); return true; }
+    } });
+  });
+}
+function flashSlash(v) {
+  const o = vObjs[v.id]; if (!o) return;
+  o.mat.color.set('#cc4b37');
+  o.pulse = 1.5;
+}
+let ringFlash = { color: null, t0: 0 };
+
+function syncScene() {
+  if (!vObjs.length) return;
+  S.vals.forEach((v, i) => {
+    const o = vObjs[i];
+    o.target = heightFor(v);
+    o.mat.opacity = v.slashed ? .55 : (v.online ? 1 : .28);
+    if (v.slashed) o.mat.color.set('#cc4b37'); else o.mat.color.set(v.color);
+    const sh = shares(S)[i];
+    o.label.element.className = 'vlabel' + (v.slashed ? ' slashed' : v.online ? '' : ' off');
+    o.label.element.innerHTML = `<b>${v.name}</b> ${v.slashed ? '· slashed' : v.online ? '' : '· offline'}<br><span class="st">${v.stake.toFixed(0)} ETH · ${(sh * 100).toFixed(1)}%</span>`;
+  });
+  // epoch ring: segments for slots of the current epoch
+  const curEpoch = epochOf(S.slot);
+  const inEpoch = S.slot % SLOTS_PER_EPOCH;
+  const epochStart = S.slot - inEpoch;
+  segs.forEach((m, i) => {
+    const b = S.blocks.find(bl => bl.slot === epochStart + i);
+    if (b && i < inEpoch) {
+      m.material.color.set(b.missed ? '#d8d9e3' : S.vals[b.proposer].color);
+      m.material.opacity = b.missed ? .6 : 1;
+    } else { m.material.color.set('#ffffff'); m.material.opacity = 1; }
+  });
+  ringDiv.innerHTML = `Epoch ${curEpoch}<small>slot ${inEpoch} of ${SLOTS_PER_EPOCH}</small>`;
+  syncChain();
+}
+
+// ===================================================================== Loop
+let now = 0, playing = false, acc = 0, last = performance.now();
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function doStep(animate = true) {
+  const r = stepSlot();
+  if (!r) { log('No active stake left: the chain has halted.', 'bad'); setPlaying(false); refresh(); return; }
+  const dur = reduceMotion ? 0.05 : Math.min(0.9, 1.4 / +ui.speed.value);
+  if (animate && vObjs.length) {
+    if (r.block.missed) animateMissed(r.proposer.id, dur);
+    else { animateProposal(r.proposer.id, r.block, dur); vObjs[r.proposer.id].pulse = 1; }
+    animateAttestations(dur);
+    if (r.epochResult) ringFlash = { color: r.epochResult === 'stalled' ? '#cc4b37' : '#89e9d7', t0: now };
+  }
+  syncChain(animate && !r.block.missed ? now + dur : 0);
+  refresh();
+}
+
+function setPlaying(p) {
+  playing = p;
+  ui.play.textContent = p ? '❚❚ Pause' : '▶ Play';
+}
+
+function tick(t) {
+  const dt = Math.min(0.1, (t - last) / 1000); last = t; now += dt;
+  if (playing) {
+    acc += dt;
+    const interval = 1 / +ui.speed.value;
+    if (acc >= interval) { acc = 0; doStep(true); }
+  }
+  // validators: animate heights, pulses, slashing sink
+  vObjs.forEach((o, i) => {
+    const v = S.vals[i];
+    o.h += (o.target - o.h) * Math.min(1, dt * 6);
+    o.sink += ((v.slashed ? o.h * .6 : 0) - o.sink) * Math.min(1, dt * 2);
+    o.body.scale.y = Math.max(0.01, o.h);
+    o.body.position.y = o.h / 2 - o.sink;
+    o.label.position.set(0, o.h - o.sink + 0.9, 0);
+    o.pulse = Math.max(0, o.pulse - dt * 1.6);
+    o.halo.material.opacity = Math.min(1, o.pulse) * .9;
+    o.halo.scale.setScalar(1 + (1 - Math.min(1, o.pulse)) * .4);
+  });
+  // chain: slide into place and grow new blocks
+  for (const m of chainMeshes.values()) {
+    m.position.x += (m.userData.targetX - m.position.x) * Math.min(1, dt * 8);
+    const grow = m.userData.appearAt && now < m.userData.appearAt ? 0.001 : 1;
+    m.scale.setScalar(m.scale.x + (grow - m.scale.x) * Math.min(1, dt * 12));
+    styleBlock(m);
+  }
+  // epoch ring flash on justification / stall
+  if (ringFlash.color) {
+    const k = (now - ringFlash.t0) / 1.2;
+    segs.forEach(m => { m.material.emissive = m.material.emissive || new THREE.Color(); m.material.emissive.set(ringFlash.color); m.material.emissiveIntensity = Math.max(0, .9 * (1 - k)); });
+    if (k >= 1) ringFlash.color = null;
+  }
+  ringGroup.rotation.y += dt * 0.05;
+  for (let i = effects.length - 1; i >= 0; i--) if (effects[i].update(now)) effects.splice(i, 1);
+  if (renderer) {
+    controls.update();
+    renderer.render(scene, camera);
+    labelRenderer.render(scene, camera);
+  }
+  requestAnimationFrame(tick);
+}
+
+const CAM_OFFSET = new THREE.Vector3(0, 19, 25).sub(new THREE.Vector3(0, 0.4, 3.2));
+function resize() {
+  const w = stage.clientWidth, h = stage.clientHeight;
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  // Narrow (portrait) screens: move the camera back so the whole network and chain fit.
+  const f = camera.aspect < 1.25 ? Math.min(1.7, 1.15 / camera.aspect) : 1;
+  if (controls) camera.position.copy(controls.target).add(CAM_OFFSET.clone().multiplyScalar(f));
+  if (renderer) renderer.setSize(w, h);
+  labelRenderer.setSize(w, h);
+  drawChart();
+}
+new ResizeObserver(resize).observe(stage);
+
+// ===================================================================== Wiring
+function reset() {
+  setPlaying(false);
+  S = newState(ui.scenario.value);
+  ui.scenarioDesc.textContent = SCENARIOS[S.scenario].desc;
+  for (const m of chainMeshes.values()) chainGroup.remove(m);
+  chainMeshes.clear();
+  buildTable();
+  buildValidators();
+  renderLog();
+  refresh();
+  vObjs.forEach(o => { o.h = o.target; });
+}
+
+ui.play.addEventListener('click', () => setPlaying(!playing));
+ui.step.addEventListener('click', () => { setPlaying(false); doStep(true); });
+ui.ff.addEventListener('click', () => {
+  setPlaying(false);
+  fastForwarding = true;
+  for (let i = 0; i < 100; i++) if (!stepSlot()) break;
+  fastForwarding = false;
+  log('Ran 100 slots.');
+  renderLog();
+  for (const m of chainMeshes.values()) chainGroup.remove(m);
+  chainMeshes.clear();
+  refresh();
+});
+ui.reset.addEventListener('click', reset);
+ui.scenario.addEventListener('change', () => {
+  const u = new URL(location); u.searchParams.set('scenario', ui.scenario.value); history.replaceState(null, '', u);
+  reset();
+});
+ui.speed.addEventListener('input', () => (ui.speedO.textContent = ui.speed.value + ' /s'));
+ui.reward.addEventListener('input', () => (ui.rewardO.textContent = ui.reward.value + ' ETH'));
+$('about-link').addEventListener('click', e => { e.preventDefault(); const d = document.querySelector('#about details'); d.open = true; d.scrollIntoView({ behavior: 'smooth' }); });
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input, select, textarea')) return;
+  if (e.code === 'Space') { e.preventDefault(); setPlaying(!playing); }
+  if (e.key === 'ArrowRight') { setPlaying(false); doStep(true); }
+});
+
+reset();
+resize();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
