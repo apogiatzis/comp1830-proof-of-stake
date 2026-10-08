@@ -322,8 +322,8 @@ const SCENARIOS = {
              desc: 'Six validators with equal stake. Run 100+ slots: do they propose an equal number of blocks? Do their shares drift?' },
   whale:   { label: 'One large validator (40 %)', stakes: [400, 120, 120, 120, 120, 120],
              desc: 'Validator A holds 40 % of the stake. With rewards re-staked, does A’s share of the stake keep growing?' },
-  blocker: { label: 'A large validator goes offline (35 %)', stakes: [350, 130, 130, 130, 130, 130], offline: [0],
-             desc: 'Validator A (35 %) stops attesting. Only 65 % of the stake is online, so finality stalls. Watch the inactivity leak.' },
+  blocker: { label: 'A large validator goes offline (35 %)', stakes: [350, 130, 130, 130, 130, 130], offline: [0], compound: false,
+             desc: 'Validator A (35 %) stops attesting. Only 65 % of the stake is online, so finality stalls. Re-staking is off, so the online validators cannot simply out-grow A: watch the inactivity leak.' },
   outage:  { label: 'Half the network offline', stakes: [100, 100, 100, 100, 100, 100], offline: [3, 4, 5],
              desc: 'Validators D, E and F go offline. Blocks are still produced, but can they be finalised?' },
   slash:   { label: 'Slashing: alone vs together', stakes: [100, 100, 100, 100, 100, 100],
@@ -849,6 +849,7 @@ new ResizeObserver(resize).observe(stage);
 function reset() {
   setPlaying(false);
   S = newState(ui.scenario.value);
+  ui.compound.checked = SCENARIOS[S.scenario].compound !== false;
   ui.scenarioDesc.textContent = SCENARIOS[S.scenario].desc;
   for (const m of chainMeshes.values()) chainGroup.remove(m);
   chainMeshes.clear();
